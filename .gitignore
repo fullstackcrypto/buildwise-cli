@@ -46,10 +46,17 @@ coverage.xml
 *.cover
 .hypothesis/
 
-# SQLite
-*.db
-*.sqlite3
-*.sqlite
+# User data
+.buildwise/
+
+# Distribution / packaging
+.Python
+downloads/
+eggs/
+.eggs/
+dist/
+sdist/
+*.egg-info/
 
 # Logs
 logs/
@@ -58,12 +65,3 @@ logs/
 # Environment variables
 .env
 .env.local
-
-# OS specific
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
