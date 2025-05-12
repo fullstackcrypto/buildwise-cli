@@ -1,268 +1,206 @@
-"""Project storage module for BuildWise CLI."""
-
+"""Project storage for BuildWise CLI."""
 import json
-import os
-import time
-from dataclasses import asdict, dataclass, field
+import uuid
 from datetime import datetime
-from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Union
 
-# Default project directory
-DEFAULT_PROJECT_DIR = os.path.expanduser("~/.buildwise/projects")
+from buildwise.config.settings import settings
 
-
-class MaterialType(str, Enum):
-    """Material types supported in projects."""
-    
-    CONCRETE = "concrete"
-    LUMBER = "lumber"
-    STEEL = "steel"
-    MIXED = "mixed"
-
-
-@dataclass
 class ProjectMaterial:
-    """Material information stored in a project."""
+    """Represents a material in a project."""
     
-    material_type: str
-    name: str
-    quantity: float
-    unit: str
-    details: Dict[str, Any] = field(default_factory=dict)
-    cost: Optional[float] = None
-    notes: Optional[str] = None
-
-
-@dataclass
-class Project:
-    """Construction project information."""
-    
-    name: str
-    description: Optional[str] = None
-    location: Optional[str] = None
-    created_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    materials: List[ProjectMaterial] = field(default_factory=list)
-    total_cost: Optional[float] = None
-    properties: Dict[str, Any] = field(default_factory=dict)
-    
-    def add_material(self, material: ProjectMaterial) -> None:
-        """Add a material to the project."""
-        self.materials.append(material)
-        self.updated_at = datetime.now().isoformat()
-        
-        # Update total cost if material has a cost
-        if material.cost is not None:
-            if self.total_cost is None:
-                self.total_cost = 0
-            self.total_cost += material.cost
-    
-    def remove_material(self, index: int) -> Optional[ProjectMaterial]:
-        """Remove a material from the project by index."""
-        if 0 <= index < len(self.materials):
-            material = self.materials.pop(index)
-            self.updated_at = datetime.now().isoformat()
-            
-            # Update total cost if material had a cost
-            if material.cost is not None and self.total_cost is not None:
-                self.total_cost -= material.cost
-            
-            return material
-        return None
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert project to dictionary."""
-        project_dict = asdict(self)
-        
-        # Convert materials to dictionaries
-        project_dict["materials"] = [
-            asdict(material) if isinstance(material, ProjectMaterial) else material
-            for material in self.materials
-        ]
-        
-        return project_dict
-
-
-class ProjectStorage:
-    """Storage for construction projects."""
-    
-    def __init__(self, storage_dir: Optional[str] = None):
-        """Initialize project storage.
+    def __init__(
+        self, 
+        material_type: str, 
+        name: str, 
+        quantity: float, 
+        unit: str,
+        details: Optional[Dict[str, Any]] = None,
+        cost: Optional[float] = None,
+        notes: Optional[str] = None
+    ):
+        """Initialize material.
         
         Args:
-            storage_dir: Directory to store projects
+            material_type: Material type (concrete, lumber, steel)
+            name: Material name
+            quantity: Material quantity
+            unit: Unit of measurement
+            details: Additional details
+            cost: Material cost
+            notes: Additional notes
         """
-        self.storage_dir = storage_dir or DEFAULT_PROJECT_DIR
-        
-        # Ensure storage directory exists
-        os.makedirs(self.storage_dir, exist_ok=True)
+        self.id = str(uuid.uuid4())
+        self.material_type = material_type
+        self.name = name
+        self.quantity = quantity
+        self.unit = unit
+        self.details = details or {}
+        self.cost = cost
+        self.notes = notes
+        self.created_at = datetime.utcnow().isoformat()
     
-    def create_project(
-        self,
-        name: str,
-        description: Optional[str] = None,
-        location: Optional[str] = None,
-        properties: Optional[Dict[str, Any]] = None,
-    ) -> Project:
-        """Create a new project.
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert material to dictionary."""
+        return {
+            "id": self.id,
+            "material_type": self.material_type,
+            "name": self.name,
+            "quantity": self.quantity,
+            "unit": self.unit,
+            "details": self.details,
+            "cost": self.cost,
+            "notes": self.notes,
+            "created_at": self.created_at
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ProjectMaterial':
+        """Create material from dictionary."""
+        material = cls(
+            material_type=data["material_type"],
+            name=data["name"],
+            quantity=data["quantity"],
+            unit=data["unit"],
+            details=data.get("details"),
+            cost=data.get("cost"),
+            notes=data.get("notes")
+        )
+        material.id = data.get("id", material.id)
+        material.created_at = data.get("created_at", material.created_at)
+        return material
+
+class Project:
+    """Represents a construction project."""
+    
+    def __init__(self, name: str, description: Optional[str] = None, location: Optional[str] = None):
+        """Initialize project.
         
         Args:
             name: Project name
             description: Project description
             location: Project location
-            properties: Additional project properties
-            
-        Returns:
-            New project instance
         """
-        # Create project
-        project = Project(
-            name=name,
-            description=description,
-            location=location,
-            properties=properties or {},
+        self.id = str(uuid.uuid4())
+        self.name = name
+        self.description = description
+        self.location = location
+        self.materials = []
+        self.created_at = datetime.utcnow().isoformat()
+        self.updated_at = self.created_at
+    
+    def add_material(self, material: ProjectMaterial) -> None:
+        """Add material to project."""
+        self.materials.append(material)
+        self.updated_at = datetime.utcnow().isoformat()
+    
+    def remove_material(self, material_id: str) -> bool:
+        """Remove material from project."""
+        for i, material in enumerate(self.materials):
+            if material.id == material_id:
+                del self.materials[i]
+                self.updated_at = datetime.utcnow().isoformat()
+                return True
+        return False
+    
+    @property
+    def total_cost(self) -> float:
+        """Calculate total project cost."""
+        return sum(m.cost or 0 for m in self.materials)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert project to dictionary."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "location": self.location,
+            "materials": [m.to_dict() for m in self.materials],
+            "created_at": self.created_at,
+            "updated_at": self.updated_at
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Project':
+        """Create project from dictionary."""
+        project = cls(
+            name=data["name"],
+            description=data.get("description"),
+            location=data.get("location")
         )
+        project.id = data.get("id", project.id)
+        project.created_at = data.get("created_at", project.created_at)
+        project.updated_at = data.get("updated_at", project.updated_at)
         
-        # Save project
+        # Add materials
+        for material_data in data.get("materials", []):
+            material = ProjectMaterial.from_dict(material_data)
+            project.materials.append(material)
+        
+        return project
+
+class ProjectStorage:
+    """Storage for projects."""
+    
+    def __init__(self, project_dir: Optional[str] = None):
+        """Initialize storage.
+        
+        Args:
+            project_dir: Project directory path
+        """
+        self.project_dir = Path(project_dir or settings.project_dir)
+        self.project_dir.mkdir(parents=True, exist_ok=True)
+    
+    def create_project(self, name: str, description: Optional[str] = None, location: Optional[str] = None) -> Project:
+        """Create a new project."""
+        project = Project(name=name, description=description, location=location)
         self.save_project(project)
-        
         return project
     
     def save_project(self, project: Project) -> None:
-        """Save a project to storage.
-        
-        Args:
-            project: Project to save
-        """
-        # Convert to dictionary
-        project_dict = project.to_dict()
-        
-        # Generate filename
-        filename = self._get_project_filename(project.name)
-        
-        # Save to file
-        with open(filename, "w") as f:
-            json.dump(project_dict, f, indent=2)
+        """Save project to storage."""
+        file_path = self.project_dir / f"{project.name.replace(' ', '_')}.json"
+        with open(file_path, 'w') as f:
+            json.dump(project.to_dict(), f, indent=2)
     
     def load_project(self, name: str) -> Optional[Project]:
-        """Load a project from storage.
-        
-        Args:
-            name: Project name
-            
-        Returns:
-            Project instance, or None if not found
-        """
-        # Generate filename
-        filename = self._get_project_filename(name)
-        
-        # Check if file exists
-        if not os.path.exists(filename):
+        """Load project from storage."""
+        file_path = self.project_dir / f"{name.replace(' ', '_')}.json"
+        if not file_path.exists():
             return None
         
-        # Load from file
         try:
-            with open(filename, "r") as f:
-                project_dict = json.load(f)
-            
-            # Create Project instance
-            project = Project(
-                name=project_dict["name"],
-                description=project_dict.get("description"),
-                location=project_dict.get("location"),
-                created_at=project_dict.get("created_at", datetime.now().isoformat()),
-                updated_at=project_dict.get("updated_at", datetime.now().isoformat()),
-                total_cost=project_dict.get("total_cost"),
-                properties=project_dict.get("properties", {}),
-            )
-            
-            # Add materials
-            for material_dict in project_dict.get("materials", []):
-                material = ProjectMaterial(
-                    material_type=material_dict["material_type"],
-                    name=material_dict["name"],
-                    quantity=material_dict["quantity"],
-                    unit=material_dict["unit"],
-                    details=material_dict.get("details", {}),
-                    cost=material_dict.get("cost"),
-                    notes=material_dict.get("notes"),
-                )
-                # Add without updating cost (already in total)
-                project.materials.append(material)
-            
-            return project
-        except Exception as e:
-            print(f"Error loading project {name}: {e}")
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+            return Project.from_dict(data)
+        except (json.JSONDecodeError, FileNotFoundError):
             return None
     
     def list_projects(self) -> List[Dict[str, Any]]:
-        """List all projects in storage.
-        
-        Returns:
-            List of project summaries
-        """
+        """List all projects."""
         projects = []
+        for file_path in self.project_dir.glob("*.json"):
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                projects.append({
+                    "name": data.get("name", "Unknown"),
+                    "description": data.get("description"),
+                    "location": data.get("location"),
+                    "created_at": data.get("created_at"),
+                    "material_count": len(data.get("materials", []))
+                })
+            except (json.JSONDecodeError, FileNotFoundError):
+                continue
         
-        # Check all files in storage directory
-        for filename in os.listdir(self.storage_dir):
-            if filename.endswith(".json"):
-                try:
-                    with open(os.path.join(self.storage_dir, filename), "r") as f:
-                        project_dict = json.load(f)
-                    
-                    # Create summary
-                    projects.append({
-                        "name": project_dict["name"],
-                        "description": project_dict.get("description", ""),
-                        "location": project_dict.get("location", ""),
-                        "created_at": project_dict.get("created_at", ""),
-                        "updated_at": project_dict.get("updated_at", ""),
-                        "material_count": len(project_dict.get("materials", [])),
-                        "total_cost": project_dict.get("total_cost"),
-                    })
-                except Exception as e:
-                    print(f"Error loading project from {filename}: {e}")
-        
-        # Sort by most recently updated
-        projects.sort(key=lambda p: p.get("updated_at", ""), reverse=True)
-        
-        return projects
+        # Sort by created date, newest first
+        return sorted(projects, key=lambda p: p.get("created_at", ""), reverse=True)
     
     def delete_project(self, name: str) -> bool:
-        """Delete a project from storage.
-        
-        Args:
-            name: Project name
-            
-        Returns:
-            True if project was deleted, False otherwise
-        """
-        # Generate filename
-        filename = self._get_project_filename(name)
-        
-        # Check if file exists
-        if not os.path.exists(filename):
-            return False
-        
-        # Delete file
-        os.remove(filename)
-        return True
-    
-    def _get_project_filename(self, name: str) -> str:
-        """Get filename for a project.
-        
-        Args:
-            name: Project name
-            
-        Returns:
-            Filename
-        """
-        # Convert name to filename-safe string
-        safe_name = "".join(c if c.isalnum() else "_" for c in name).lower()
-        
-        # Add timestamp to ensure uniqueness but keep name recognizable
-        timestamp = int(time.time())
-        
-        # Return full path
-        return os.path.join(self.storage_dir, f"{safe_name}_{timestamp}.json")
+        """Delete project from storage."""
+        file_path = self.project_dir / f"{name.replace(' ', '_')}.json"
+        if file_path.exists():
+            file_path.unlink()
+            return True
+        return False

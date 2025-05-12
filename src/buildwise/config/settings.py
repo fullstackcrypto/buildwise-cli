@@ -1,149 +1,125 @@
-"""Configuration settings for BuildWise CLI."""
-
-import os
+"""Settings management for BuildWise CLI."""
 import json
+import os
 from pathlib import Path
-from typing import Dict, Optional
-
-# Default configuration directory
-DEFAULT_CONFIG_DIR = os.path.expanduser("~/.buildwise")
-DEFAULT_CONFIG_FILE = os.path.join(DEFAULT_CONFIG_DIR, "config.json")
-
+from typing import Dict, Any, Optional
 
 class Settings:
-    """Configuration settings for BuildWise CLI."""
+    """Manages application settings."""
     
-    def __init__(self, config_file: Optional[str] = None):
-        """Initialize settings.
+    def __init__(self):
+        """Initialize settings with default values."""
+        self.config_dir = Path.home() / ".buildwise"
+        self.config_file = self.config_dir / "config.json"
         
-        Args:
-            config_file: Path to configuration file
-        """
-        self.config_file = config_file or DEFAULT_CONFIG_FILE
-        self.config_dir = os.path.dirname(self.config_file)
-        self._config = self._load_config()
-    
-    def _load_config(self) -> Dict:
-        """Load configuration from file."""
-        if not os.path.exists(self.config_file):
-            # Create default configuration
-            os.makedirs(self.config_dir, exist_ok=True)
-            default_config = {
-                "openai_api_key": "",
-                "project_dir": os.path.join(self.config_dir, "projects"),
-                "theme": "light",
-                "default_location": "United States",
-                "material_prices": {
-                    "concrete_per_yard": 150,
-                    "lumber_pine_per_bf": 3.0,
-                    "steel_per_pound": 0.85,
-                },
+        # Default settings
+        self._defaults = {
+            "openai_api_key": "",
+            "project_dir": str(self.config_dir / "projects"),
+            "theme": "light",
+            "default_location": "United States",
+            "material_prices": {
+                "concrete_per_yard": 150,
+                "lumber_pine_per_bf": 3.0,
+                "steel_per_pound": 0.85
             }
-            self._save_config(default_config)
-            return default_config
+        }
         
-        try:
-            with open(self.config_file, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            # Return default config if file is corrupted
-            return {
-                "openai_api_key": "",
-                "project_dir": os.path.join(self.config_dir, "projects"),
-                "theme": "light",
-                "default_location": "United States",
-                "material_prices": {
-                    "concrete_per_yard": 150,
-                    "lumber_pine_per_bf": 3.0,
-                    "steel_per_pound": 0.85,
-                },
-            }
+        # Current settings
+        self._settings = {}
+        
+        # Load settings
+        self._ensure_config_dir()
+        self._load_settings()
     
-    def _save_config(self, config: Dict) -> None:
-        """Save configuration to file."""
-        try:
-            with open(self.config_file, "w") as f:
-                json.dump(config, f, indent=2)
-        except IOError:
-            print(f"Warning: Could not save configuration to {self.config_file}")
+    def _ensure_config_dir(self):
+        """Ensure config directory exists."""
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        project_dir = Path(self._defaults["project_dir"])
+        project_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _load_settings(self):
+        """Load settings from config file."""
+        if not self.config_file.exists():
+            # Create with default settings
+            self._settings = self._defaults.copy()
+            self._save_settings()
+        else:
+            # Load from file
+            try:
+                with open(self.config_file, 'r') as f:
+                    self._settings = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                # If file is corrupt or missing, use defaults
+                self._settings = self._defaults.copy()
+                self._save_settings()
+    
+    def _save_settings(self):
+        """Save settings to config file."""
+        with open(self.config_file, 'w') as f:
+            json.dump(self._settings, f, indent=2)
     
     @property
     def openai_api_key(self) -> str:
         """Get OpenAI API key."""
-        # Check environment variable first
-        env_key = os.environ.get("OPENAI_API_KEY")
-        if env_key:
-            return env_key
-        
-        # Then check config file
-        return self._config.get("openai_api_key", "")
+        return self._settings.get("openai_api_key", "")
     
     @openai_api_key.setter
-    def openai_api_key(self, value: str) -> None:
+    def openai_api_key(self, value: str):
         """Set OpenAI API key."""
-        self._config["openai_api_key"] = value
-        self._save_config(self._config)
+        self._settings["openai_api_key"] = value
+        self._save_settings()
     
     @property
     def project_dir(self) -> str:
         """Get project directory."""
-        return self._config.get("project_dir", os.path.join(self.config_dir, "projects"))
+        return self._settings.get("project_dir", self._defaults["project_dir"])
     
     @project_dir.setter
-    def project_dir(self, value: str) -> None:
+    def project_dir(self, value: str):
         """Set project directory."""
-        self._config["project_dir"] = value
-        self._save_config(self._config)
-        
-        # Ensure directory exists
-        os.makedirs(value, exist_ok=True)
+        self._settings["project_dir"] = value
+        Path(value).mkdir(parents=True, exist_ok=True)
+        self._save_settings()
     
     @property
     def theme(self) -> str:
-        """Get UI theme."""
-        return self._config.get("theme", "light")
+        """Get theme."""
+        return self._settings.get("theme", "light")
     
     @theme.setter
-    def theme(self, value: str) -> None:
-        """Set UI theme."""
-        self._config["theme"] = value
-        self._save_config(self._config)
+    def theme(self, value: str):
+        """Set theme."""
+        self._settings["theme"] = value
+        self._save_settings()
     
     @property
     def default_location(self) -> str:
         """Get default location."""
-        return self._config.get("default_location", "United States")
+        return self._settings.get("default_location", "United States")
     
     @default_location.setter
-    def default_location(self, value: str) -> None:
+    def default_location(self, value: str):
         """Set default location."""
-        self._config["default_location"] = value
-        self._save_config(self._config)
+        self._settings["default_location"] = value
+        self._save_settings()
     
     @property
-    def material_prices(self) -> Dict:
-        """Get default material prices."""
-        return self._config.get("material_prices", {
-            "concrete_per_yard": 150,
-            "lumber_pine_per_bf": 3.0,
-            "steel_per_pound": 0.85,
-        })
+    def material_prices(self) -> Dict[str, float]:
+        """Get material prices."""
+        return self._settings.get("material_prices", self._defaults["material_prices"])
     
-    def update_material_price(self, material: str, price: float) -> None:
-        """Update a material price."""
-        if "material_prices" not in self._config:
-            self._config["material_prices"] = {}
+    def update_material_price(self, key: str, value: float):
+        """Update material price."""
+        if "material_prices" not in self._settings:
+            self._settings["material_prices"] = {}
         
-        self._config["material_prices"][material] = price
-        self._save_config(self._config)
+        self._settings["material_prices"][key] = value
+        self._save_settings()
     
-    def get_material_price(self, material: str) -> Optional[float]:
-        """Get a material price."""
-        if "material_prices" not in self._config:
-            return None
-        
-        return self._config["material_prices"].get(material)
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert settings to dictionary."""
+        return self._settings.copy()
 
-
-# Create a global settings instance
+# Create a singleton instance
 settings = Settings()

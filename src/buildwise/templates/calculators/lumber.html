@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h2 class="m-0"><i class="fas fa-ruler me-2"></i>Lumber Calculator</h2>
+            </div>
+            <div class="card-body">
+                <form id="lumberForm" class="mt-3" action="javascript:void(0);" onsubmit="calculateLumber()">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label for="thickness" class="form-label">
+                                <i class="fas fa-arrows-alt-v me-1"></i>Nominal Thickness (inches)
+                            </label>
+                            <input type="number" class="form-control" id="thickness" name="thickness" min="0" step="0.01" required>
+                            <div class="form-text">Example: For a 2×4, enter 2</div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <label for="width" class="form-label">
+                                <i class="fas fa-arrows-alt-h me-1"></i>Nominal Width (inches)
+                            </label>
+                            <input type="number" class="form-control" id="width" name="width" min="0" step="0.01" required>
+                            <div class="form-text">Example: For a 2×4, enter 4</div>
+                        </div>
+                        
+                        <div class="col-md-4">
+                            <label for="length" class="form-label">
+                                <i class="fas fa-ruler-horizontal me-1"></i>Length
+                            </label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="length" name="length" min="0" step="0.01" required>
+                                <select class="form-select" id="length_unit" name="length_unit" style="max-width: 100px;">
+                                    <option value="feet" selected>Feet</option>
+                                    <option value="meters">Meters</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row g-3 mt-2">
+                        <div class="col-md-3">
+                            <label for="quantity" class="form-label">
+                                <i class="fas fa-sort-amount-up me-1"></i>Quantity
+                            </label>
+                            <input type="number" class="form-control" id="quantity" name="quantity" min="1" value="1" required>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <label for="lumber_type" class="form-label">
+                                <i class="fas fa-tree me-1"></i>Lumber Type
+                            </label>
+                            <select class="form-select" id="lumber_type" name="lumber_type">
+                                <option value="pine" selected>Pine</option>
+                                <option value="fir">Fir</option>
+                                <option value="cedar">Cedar</option>
+                                <option value="oak">Oak</option>
+                                <option value="maple">Maple</option>
+                                <option value="walnut">Walnut</option>
+                                <option value="redwood">Redwood</option>
+                                <option value="spruce">Spruce</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <label for="grade" class="form-label">
+                                <i class="fas fa-star me-1"></i>Grade
+                            </label>
+                            <select class="form-select" id="grade" name="grade">
+                                <option value="no.2" selected>No. 2</option>
+                                <option value="no.1">No. 1</option>
+                                <option value="select">Select</option>
+                                <option value="standard">Standard</option>
+                                <option value="utility">Utility</option>
+                                <option value="economy">Economy</option>
+                                <option value="stud">Stud</option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-3">
+                            <label for="price" class="form-label">
+                                <i class="fas fa-dollar-sign me-1"></i>Price per board foot
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" class="form-control" id="price" name="price" min="0" step="0.01">
+                            </div>
+                            <div class="form-text">Optional - uses default if empty</div>
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-4">
+                        <button class="btn btn-primary" type="submit">
+                            <i class="fas fa-calculator me-2"></i>Calculate
+                        </button>
+                        <button class="btn btn-outline-secondary" type="reset">
+                            <i class="fas fa-undo me-2"></i>Reset
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="resultCard" class="row mb-4" style="display:none;">
+    <div class="col-12">
+        <div class="card shadow-sm border-success">
+            <div class="card-header bg-success text-white">
+                <h3 class="m-0"><i class="fas fa-check-circle me-2"></i>Results</h3>
+            </div>
+            <div class="card-body">
+                <div id="result"></div>
+                <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-3">
+                    <button class="btn btn-outline-primary" onclick="saveToProject()">
+                        <i class="fas fa-save me-2"></i>Save to Project
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="printResults()">
+                        <i class="fas fa-print me-2"></i>Print
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function calculateLumber() {
+    const thickness = document.getElementById('thickness').value;
+    const width = document.getElementById('width').value;
+    const length = document.getElementById('length').value;
+    const length_unit = document.getElementById('length_unit').value;
+    const quantity = document.getElementById('quantity').value;
+    const lumber_type = document.getElementById('lumber_type').value;
+    const grade = document.getElementById('grade').value;
+    const price = document.getElementById('price').value;
+    
+    console.log('Calculating lumber with:', { 
+        thickness, width, length, length_unit, quantity, lumber_type, grade, price 
+    });
+    
+    fetch('/api/v1/calculators/lumber', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            thickness: parseFloat(thickness),
+            width: parseFloat(width),
+            length: parseFloat(length),
+            length_unit: length_unit,
+            quantity: parseInt(quantity),
+            lumber_type: lumber_type,
+            grade: grade,
+            price: price ? parseFloat(price) : null
+        })
+    })
+    .then(response => {
+        console.log('Response status:', response.status);
+        return response.json();
+    })
+    .then(data => {
+        console.log('Calculation result:', data);
+        
+        // Format dimensions label based on inputs
+        const dimensionsLabel = `${thickness}×${width}×${length}' (${quantity} piece${quantity > 1 ? 's' : ''})`;
+        const actualSize = `${data.board_feet.actual_thickness}"×${data.board_feet.actual_width}"×${data.board_feet.length_feet}'`;
+        
+        let resultHtml = `
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="alert alert-info">
+                        <h4><i class="fas fa-info-circle me-2"></i>Dimensions</h4>
+                        <p>
+                            <strong>Nominal Size:</strong> ${dimensionsLabel}<br>
+                            <strong>Actual Size:</strong> ${actualSize}<br>
+                            <strong>Type:</strong> ${lumber_type.charAt(0).toUpperCase() + lumber_type.slice(1)}<br>
+                            <strong>Grade:</strong> ${grade}
+                        </p>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="alert alert-success">
+                        <h4><i class="fas fa-calculator me-2"></i>Board Feet</h4>
+                        <p class="fs-3">${data.board_feet.board_feet.toFixed(2)} BF</p>
+                        <p class="mb-0">Volume: ${data.board_feet.volume.cubic_feet.toFixed(2)} cubic feet</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        if (data.cost) {
+            resultHtml += `
+                <div class="row">
+                    <div class="col-12">
+                        <div class="alert alert-warning">
+                            <h4><i class="fas fa-dollar-sign me-2"></i>Cost Estimate</h4>
+                            <p class="fs-3">$${data.cost.toFixed(2)}</p>
+                            <p class="mb-0">$${(data.cost / data.board_feet.board_feet).toFixed(2)} per board foot</p>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        document.getElementById('result').innerHTML = resultHtml;
+        document.getElementById('resultCard').style.display = 'block';
+        
+        // Scroll to results
+        document.getElementById('resultCard').scrollIntoView({ behavior: 'smooth' });
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('result').innerHTML = `
+            <div class="alert alert-danger">
+                <h4><i class="fas fa-exclamation-triangle me-2"></i>Error</h4>
+                <p>${error}</p>
+            </div>
+        `;
+        document.getElementById('resultCard').style.display = 'block';
+    });
+}
+
+function saveToProject() {
+    alert('Project saving feature coming soon!');
+}
+
+function printResults() {
+    window.print();
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Lumber calculator template loaded');
+});
+</script>
+{% endblock %}

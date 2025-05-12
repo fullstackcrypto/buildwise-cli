@@ -1,51 +1,133 @@
-"""FastAPI web dashboard for BuildWise CLI."""
-
 import os
+import csv
+import json
+import uuid
+import pathlib
+import tempfile
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.background import BackgroundTasks
 from pydantic import BaseModel
-import uvicorn
 
 from buildwise.core.concrete import ConcreteCalculator
-from buildwise.core.lumber import LumberCalculator
-from buildwise.core.steel import SteelCalculator
-from buildwise.services.ai_prediction import AIPredictionService
-from buildwise.storage.project import MaterialType, ProjectMaterial, ProjectStorage
+from buildwise.core.lumber import LumberCalculator, LumberType, LumberGrade
+from buildwise.core.steel import SteelCalculator, SteelType, SteelGrade
+from buildwise.config.settings import settings
+from buildwise.storage.project import ProjectStorage, ProjectMaterial
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="BuildWise Dashboard",
-    description="Web dashboard for BuildWise construction calculator suite",
+    title="BuildWise API", 
     version="0.1.0",
+    description="Construction calculator API with material estimation",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc"
 )
 
-# Set up templates
-templates_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
-templates = Jinja2Templates(directory=templates_path)
+# Set up templates directory
+current_dir = pathlib.Path(__file__).parent
+templates_dir = current_dir.parent / "templates"
+if not os.path.exists(templates_dir):
+    os.makedirs(templates_dir)
+templates = Jinja2Templates(directory=str(templates_dir))
 
-# Set up static files
-static_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
-app.mount("/static", StaticFiles(directory=static_path), name="static")
+# Set up static files directory 
+static_dir = current_dir.parent / "static"
+if not os.path.exists(static_dir):
+    os.makedirs(static_dir)
+    css_dir = static_dir / "css"
+    if not os.path.exists(css_dir):
+        os.makedirs(css_dir)
+    js_dir = static_dir / "js"
+    if not os.path.exists(js_dir):
+        os.makedirs(js_dir)
+app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-# Define Pydantic models for API requests/responses
+# Initialize services
+concrete_calculator = ConcreteCalculator()
+lumber_calculator = LumberCalculator()
+steel_calculator = SteelCalculator()
+project_storage = ProjectStorage()
 
+# Health check endpoints
+@app.get("/health")  # Original endpoint
+async def health_check():
+    return {"status": "ok"}
+
+@app.get("/api/v1/health")  # New API versioned endpoint
+async def api_health_check():
+    """Health check endpoint."""
+    return {"status": "ok", "version": "0.1.0"}
+
+# Web Dashboard Routes
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Render dashboard page."""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
+
+# Calculator Page Routes
+@app.get("/calculators/concrete", response_class=HTMLResponse)
+async def concrete_calculator_page(request: Request):
+    """Render concrete calculator page."""
+    return templates.TemplateResponse("calculators/concrete.html", {"request": request})
+
+@app.get("/calculators/lumber", response_class=HTMLResponse)
+async def lumber_calculator_page(request: Request):
+    """Render lumber calculator page."""
+    return templates.TemplateResponse("calculators/lumber.html", {"request": request})
+
+@app.get("/calculators/steel", response_class=HTMLResponse)
+async def steel_calculator_page(request: Request):
+    """Render steel calculator page."""
+    return templates.TemplateResponse("calculators/steel.html", {"request": request})
+
+# API Calculator Routes
 class ConcreteRequest(BaseModel):
-    """Request model for concrete calculation."""
-    
     length: float
     width: float
     depth: float
     unit: str = "feet"
     price_per_unit: Optional[float] = None
+    predict_cost: bool = False
+    location: Optional[str] = None
+    quality: Optional[str] = None
 
+class ConcreteResponse(BaseModel):
+    volume: Dict
+    cost: Optional[float] = None
+    cost_prediction: Optional[Dict] = None
+    timestamp: Optional[str] = None
+
+@app.post("/api/v1/calculators/concrete", response_model=ConcreteResponse)
+async def calculate_concrete(data: ConcreteRequest):
+    """Calculate concrete volume and cost."""
+    # Perform calculation
+    volume = concrete_calculator.calculate_volume(
+        length=data.length,
+        width=data.width, 
+        depth=data.depth,
+        unit=data.unit
+    )
+    
+    cost = None
+    if data.price_per_unit:
+        cost = concrete_calculator.calculate_cost(
+            volume=volume,
+            price_per_unit=data.price_per_unit
+        )
+    
+    return {
+        "volume": volume,
+        "cost": cost,
+        "cost_prediction": None,
+        "timestamp": None
+    }
 
 class LumberRequest(BaseModel):
-    """Request model for lumber calculation."""
-    
     width: float
     thickness: float
     length: float
@@ -55,39 +137,117 @@ class LumberRequest(BaseModel):
     grade: str = "no.2"
     price: Optional[float] = None
 
+class LumberResponse(BaseModel):
+    board_feet: Dict
+    cost: Optional[float] = None
+
+@app.post("/api/v1/calculators/lumber", response_model=LumberResponse)
+async def calculate_lumber(data: LumberRequest):
+    """Calculate lumber board feet and cost."""
+    # Perform calculation
+    board_feet = lumber_calculator.calculate_board_feet(
+        nominal_width=data.width,
+        nominal_thickness=data.thickness,
+        length=data.length,
+        quantity=data.quantity,
+        length_unit=data.length_unit
+    )
+    
+    cost = lumber_calculator.calculate_cost(
+        board_feet=board_feet,
+        lumber_type=LumberType(data.lumber_type),
+        grade=LumberGrade(data.grade),
+        price_per_board_foot=data.price
+    )
+    
+    return {
+        "board_feet": board_feet,
+        "cost": cost
+    }
 
 class SteelRequest(BaseModel):
-    """Request model for steel calculation."""
-    
-    steel_type: str
-    dimensions: Dict[str, float]
+    steel_type: str = "rebar"
+    dimensions: Dict = {}
     length: float
     length_unit: str = "feet"
     quantity: int = 1
     grade: Optional[str] = None
     price_per_pound: Optional[float] = None
 
+class SteelResponse(BaseModel):
+    weight: Dict
+    cost: Optional[float] = None
 
-class MaterialCostEstimationRequest(BaseModel):
-    """Request model for material cost estimation."""
+@app.post("/api/v1/calculators/steel", response_model=SteelResponse)
+async def calculate_steel(data: SteelRequest):
+    """Calculate steel weight and cost."""
+    # Set default dimensions for rebar if not provided
+    if data.steel_type == "rebar" and not data.dimensions:
+        data.dimensions = {"bar_number": 4}  # Default to #4 rebar
+        
+    # Perform calculation
+    weight = steel_calculator.calculate_weight(
+        steel_type=SteelType(data.steel_type),
+        dimensions=data.dimensions,
+        length=data.length,
+        quantity=data.quantity,
+        length_unit=data.length_unit
+    )
     
-    material_type: str
-    quantity: float
-    unit: str
-    location: str = "United States"
-
-
-class ProjectRequest(BaseModel):
-    """Request model for creating a project."""
+    cost = None
+    if data.grade:
+        cost = steel_calculator.calculate_cost(
+            weight=weight,
+            steel_type=SteelType(data.steel_type),
+            grade=SteelGrade(data.grade),
+            price_per_pound=data.price_per_pound
+        )
     
+    return {
+        "weight": weight,
+        "cost": cost
+    }
+
+# Project API Routes
+@app.get("/api/v1/projects")
+async def list_projects():
+    """List all projects."""
+    projects = project_storage.list_projects()
+    return {"projects": projects}
+
+class ProjectCreate(BaseModel):
     name: str
-    description: Optional[str] = None
-    location: Optional[str] = None
+    description: str
+    location: str
 
+@app.post("/api/v1/projects")
+async def create_project(data: ProjectCreate):
+    """Create a new project."""
+    project = project_storage.create_project(
+        name=data.name,
+        description=data.description,
+        location=data.location
+    )
+    project_storage.save_project(project)
+    return {"name": data.name, "created": True}
 
-class MaterialRequest(BaseModel):
-    """Request model for adding a material to a project."""
-    
+@app.get("/api/v1/projects/{name}")
+async def get_project(name: str):
+    """Get a project by name."""
+    project = project_storage.load_project(name)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project
+
+@app.delete("/api/v1/projects/{name}")
+async def delete_project(name: str):
+    """Delete a project."""
+    success = project_storage.delete_project(name)
+    if not success:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"deleted": True}
+
+class MaterialCreate(BaseModel):
     material_type: str
     name: str
     quantity: float
@@ -96,244 +256,66 @@ class MaterialRequest(BaseModel):
     cost: Optional[float] = None
     notes: Optional[str] = None
 
-
-class ProjectSummary(BaseModel):
-    """Summary model for projects."""
-    
-    name: str
-    description: Optional[str] = None
-    location: Optional[str] = None
-    created_at: str
-    updated_at: str
-    material_count: int
-    total_cost: Optional[float] = None
-
-
-# Define web routes
-
-@app.get("/", response_class=HTMLResponse)
-async def root(request: Request):
-    """Root endpoint to render the dashboard."""
-    storage = ProjectStorage()
-    projects = storage.list_projects()[:5]  # Get the 5 most recent projects
-    
-    return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request, "projects": projects}
-    )
-
-
-@app.get("/calculators/concrete", response_class=HTMLResponse)
-async def concrete_calculator(request: Request):
-    """Render concrete calculator page."""
-    return templates.TemplateResponse(
-        "calculators/concrete.html",
-        {"request": request}
-    )
-
-
-# API routes
-
-@app.get("/health")
-async def health():
-    """Health check endpoint."""
-    return {"status": "healthy"}
-
-
-@app.post("/api/v1/calculators/concrete")
-async def calculate_concrete(request: ConcreteRequest):
-    """Calculate concrete volume and cost."""
-    calculator = ConcreteCalculator()
-    
-    # Calculate volume
-    volume = calculator.calculate_volume(
-        length=request.length,
-        width=request.width,
-        depth=request.depth,
-        unit=request.unit
-    )
-    
-    # Calculate cost if price is provided
-    cost = None
-    if request.price_per_unit is not None:
-        cost = calculator.calculate_cost(volume, request.price_per_unit)
-    
-    # Build HTML response for HTMX
-    html_response = f"""
-    <div class="alert alert-success">
-        <h5>Calculation Results</h5>
-        <p><strong>Dimensions:</strong> {request.length} x {request.width} x {request.depth} {request.unit}</p>
-        <p><strong>Cubic Yards:</strong> {volume["cubic_yards"]}</p>
-        <p><strong>Cubic Meters:</strong> {volume["cubic_meters"]}</p>
-    """
-    
-    if cost is not None:
-        html_response += f"<p><strong>Cost:</strong> ${cost:.2f}</p>"
-    
-    html_response += "</div>"
-    
-    return HTMLResponse(content=html_response)
-
-
-@app.post("/api/v1/calculators/lumber")
-async def calculate_lumber(request: LumberRequest):
-    """Calculate lumber board feet and cost."""
-    calculator = LumberCalculator()
-    
-    # Calculate board feet
-    result = calculator.calculate_board_feet(
-        nominal_width=request.width,
-        nominal_thickness=request.thickness,
-        length=request.length,
-        quantity=request.quantity,
-        length_unit=request.length_unit
-    )
-    
-    # Calculate cost
-    cost = calculator.calculate_cost(
-        board_feet=result,
-        lumber_type=request.lumber_type,
-        grade=request.grade,
-        price_per_board_foot=request.price
-    )
-    
-    # Return result
-    return {
-        "board_feet": result,
-        "cost": cost
-    }
-
-
-@app.post("/api/v1/calculators/steel")
-async def calculate_steel(request: SteelRequest):
-    """Calculate steel weight and cost."""
-    calculator = SteelCalculator()
-    
-    # Calculate weight
-    result = calculator.calculate_weight(
-        steel_type=request.steel_type,
-        dimensions=request.dimensions,
-        length=request.length,
-        quantity=request.quantity,
-        length_unit=request.length_unit
-    )
-    
-    # Calculate cost
-    cost = calculator.calculate_cost(
-        weight=result,
-        steel_type=request.steel_type,
-        grade=request.grade,
-        price_per_pound=request.price_per_pound
-    )
-    
-    # Return result
-    return {
-        "weight": result,
-        "cost": cost
-    }
-
-
-@app.post("/api/v1/estimations/material-cost")
-async def estimate_material_cost(request: MaterialCostEstimationRequest):
-    """Generate AI-powered material cost estimate."""
-    # Initialize AI service
-    ai_service = AIPredictionService()
-    
-    # Prepare quantity object based on unit
-    if request.unit in ["cubic_yard", "cubic_yards"]:
-        quantity_obj = {"cubic_yards": request.quantity}
-    elif request.unit in ["board_foot", "board_feet"]:
-        quantity_obj = {"board_feet": request.quantity}
-    else:
-        quantity_obj = request.quantity
-    
-    # Get prediction
-    prediction = ai_service.predict_material_cost(
-        material_type=request.material_type,
-        quantity=quantity_obj,
-        location=request.location
-    )
-    
-    return prediction
-
-
-@app.get("/api/v1/projects", response_model=List[ProjectSummary])
-async def list_projects():
-    """List all projects."""
-    storage = ProjectStorage()
-    projects = storage.list_projects()
-    return projects
-
-
-@app.post("/api/v1/projects")
-async def create_project(request: ProjectRequest):
-    """Create a new project."""
-    storage = ProjectStorage()
-    project = storage.create_project(
-        name=request.name,
-        description=request.description,
-        location=request.location
-    )
-    return {"name": project.name, "created": True}
-
-
-@app.get("/api/v1/projects/{name}")
-async def get_project(name: str):
-    """Get a project by name."""
-    storage = ProjectStorage()
-    project = storage.load_project(name)
-    
-    if not project:
-        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
-    
-    return project.to_dict()
-
-
 @app.post("/api/v1/projects/{name}/materials")
-async def add_material(name: str, request: MaterialRequest):
+async def add_material(name: str, data: MaterialCreate):
     """Add a material to a project."""
-    storage = ProjectStorage()
-    project = storage.load_project(name)
+    project = project_storage.load_project(name)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     
-    if not project:
-        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
-    
-    # Create material
     material = ProjectMaterial(
-        material_type=request.material_type,
-        name=request.name,
-        quantity=request.quantity,
-        unit=request.unit,
-        details=request.details or {},
-        cost=request.cost,
-        notes=request.notes
+        material_type=data.material_type,
+        name=data.name,
+        quantity=data.quantity,
+        unit=data.unit,
+        details=data.details,
+        cost=data.cost,
+        notes=data.notes
     )
     
-    # Add to project
     project.add_material(material)
-    
-    # Save project
-    storage.save_project(project)
+    project_storage.save_project(project)
     
     return {"added": True}
 
-
-@app.delete("/api/v1/projects/{name}")
-async def delete_project(name: str):
-    """Delete a project by name."""
-    storage = ProjectStorage()
-    success = storage.delete_project(name)
+@app.get("/api/v1/projects/{name}/export", response_class=FileResponse)
+async def export_project(name: str, background_tasks: BackgroundTasks):
+    """Export project to CSV."""
+    project = project_storage.load_project(name)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
     
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
+    # Create a temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+    with open(temp_file.name, "w", newline="") as file:
+        writer = csv.writer(file)
+        # Write project info
+        writer.writerow(["Project Information"])
+        writer.writerow(["Name", project.name])
+        writer.writerow(["Location", project.location or ""])
+        writer.writerow(["Description", project.description or ""])
+        writer.writerow([])
+        writer.writerow(["Materials"])
+        writer.writerow(["Name", "Type", "Quantity", "Unit", "Cost"])
+        # Write materials
+        for material in project.materials:
+            writer.writerow([
+                material.name,
+                material.material_type,
+                material.quantity,
+                material.unit,
+                material.cost
+            ])
+        temp_filename = temp_file.name
     
-    return {"name": name, "deleted": True}
-
-
-def run_dashboard(host: str = "127.0.0.1", port: int = 8000):
-    """Run the FastAPI dashboard."""
-    uvicorn.run(app, host=host, port=port)
-
+    # Return the file and cleanup afterwards
+    background_tasks.add_task(os.unlink, temp_filename)
+    return FileResponse(
+        path=temp_filename,
+        filename=f"{name}_project.csv",
+        media_type="text/csv"
+    )
 
 if __name__ == "__main__":
-    run_dashboard()
+    import uvicorn
+    uvicorn.run("buildwise.api.main:app", host="127.0.0.1", port=8000, reload=True)

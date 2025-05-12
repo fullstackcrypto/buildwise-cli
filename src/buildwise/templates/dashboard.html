@@ -1,206 +1,82 @@
 {% extends "base.html" %}
-
-{% block title %}BuildWise - Dashboard{% endblock %}
-
 {% block content %}
 <div class="row mb-4">
+    <div class="col-12">
+        <div class="p-5 mb-4 bg-light rounded-3 shadow-sm">
+            <div class="container-fluid py-2">
+                <h1 class="display-5 fw-bold text-primary"><i class="fas fa-calculator me-3"></i>BuildWise Construction Calculator</h1>
+                <p class="col-md-10 fs-4">Accurate calculations for construction professionals. Estimate materials, costs, and requirements with precision.</p>
+                <a href="/api/docs" class="btn btn-primary btn-lg mt-2">
+                    <i class="fas fa-book me-2"></i>API Documentation
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row row-cols-1 row-cols-md-3 g-4 mb-5">
     <div class="col">
-        <h1 class="display-5 fw-bold">Construction Calculator Dashboard</h1>
-        <p class="lead">Intelligent construction calculators with AI-powered estimations</p>
-    </div>
-</div>
-
-<div class="row mb-4">
-    <div class="col-md-4">
-        <div class="card h-100">
-            <div class="card-body text-center">
-                <div class="dashboard-icon">🧱</div>
-                <h5 class="card-title">Concrete Calculator</h5>
-                <p class="card-text">Calculate concrete volume, cost, and materials needed for your project.</p>
-                <a href="/calculators/concrete" class="btn btn-primary">Open Calculator</a>
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center py-4">
+                <i class="fas fa-cube fa-4x text-primary mb-3"></i>
+                <h2 class="card-title">Concrete Calculator</h2>
+                <p class="card-text">Calculate volume, cost, and materials needed for concrete projects.</p>
+                <a href="/calculators/concrete" class="btn btn-outline-primary">
+                    <i class="fas fa-calculator me-2"></i>Calculate Concrete
+                </a>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card h-100">
-            <div class="card-body text-center">
-                <div class="dashboard-icon">🪵</div>
-                <h5 class="card-title">Lumber Calculator</h5>
-                <p class="card-text">Calculate board feet, cost, and quantity for lumber materials.</p>
-                <a href="/calculators/lumber" class="btn btn-primary">Open Calculator</a>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card h-100">
-            <div class="card-body text-center">
-                <div class="dashboard-icon">⚙️</div>
-                <h5 class="card-title">Steel Calculator</h5>
-                <p class="card-text">Calculate weight, cost, and materials for steel components.</p>
-                <a href="/calculators/steel" class="btn btn-primary">Open Calculator</a>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row mb-4">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                Recent Projects
-            </div>
-            <div class="card-body">
-                <div id="projects-list">
-                    {% if projects %}
-                        <ul class="list-group">
-                            {% for project in projects %}
-                                <li class="list-group-item d-flex justify-content-between align-items-center">
-                                    <div>
-                                        <strong>{{ project.name }}</strong>
-                                        <small class="d-block text-muted">{{ project.location or '' }}</small>
-                                    </div>
-                                    <a href="/projects/{{ project.name }}" class="btn btn-sm btn-outline-primary">View</a>
-                                </li>
-                            {% endfor %}
-                        </ul>
-                    {% else %}
-                        <p class="text-muted">No projects found. <a href="/projects/new">Create your first project</a>.</p>
-                    {% endif %}
-                </div>
-                <div class="mt-3">
-                    <a href="/projects" class="btn btn-outline-secondary">View All Projects</a>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                AI-Powered Estimation
-            </div>
-            <div class="card-body">
-                <p>Get intelligent cost estimates for your construction materials using our AI model.</p>
-                <div class="mb-3">
-                    <label for="materialType" class="form-label">Material Type</label>
-                    <select class="form-select" id="materialType">
-                        <option value="concrete">Concrete</option>
-                        <option value="lumber">Lumber</option>
-                        <option value="steel">Steel</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label for="quantity" class="form-label">Quantity</label>
-                    <input type="number" class="form-control" id="quantity" value="100">
-                </div>
-                <div class="mb-3">
-                    <label for="unit" class="form-label">Unit</label>
-                    <select class="form-select" id="unit">
-                        <option value="cubic_yard">Cubic Yards</option>
-                        <option value="board_feet">Board Feet</option>
-                        <option value="pounds">Pounds</option>
-                    </select>
-                </div>
-                <div class="mb-3">
-                    <label for="location" class="form-label">Location</label>
-                    <input type="text" class="form-control" id="location" value="United States">
-                </div>
-                <button class="btn btn-primary" id="estimateButton">Get Estimate</button>
-                
-                <div class="result-section mt-3" id="estimateResult" style="display: none;">
-                    <h5>Estimated Cost</h5>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <p class="mb-1">Estimate: <strong id="estimatedCost">$0.00</strong></p>
-                            <p class="mb-1">Range: <span id="costRange">$0.00 - $0.00</span></p>
-                            <p class="mb-1">Confidence: <span id="confidenceLevel">Medium</span></p>
-                        </div>
-                        <div class="col-md-6">
-                            <p class="text-muted">Source: <span id="estimateSource">AI Model</span></p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-    document.getElementById('estimateButton').addEventListener('click', function() {
-        const materialType = document.getElementById('materialType').value;
-        const quantity = document.getElementById('quantity').value;
-        const unit = document.getElementById('unit').value;
-        const location = document.getElementById('location').value;
-        
-        // Show loading state
-        this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Loading...';
-        this.disabled = true;
-        
-        // Make API request
-        fetch('/api/v1/estimations/material-cost', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                material_type: materialType,
-                quantity: parseFloat(quantity),
-                unit: unit,
-                location: location
-            }),
-        })
-        .then(response => response.json())
-        .then(data => {
-            // Reset button
-            this.innerHTML = 'Get Estimate';
-            this.disabled = false;
-            
-            // Update result
-            document.getElementById('estimatedCost').textContent = `$${data.estimated_cost.toFixed(2)}`;
-            document.getElementById('costRange').textContent = `$${data.min_cost.toFixed(2)} - $${data.max_cost.toFixed(2)}`;
-            document.getElementById('confidenceLevel').textContent = data.confidence_level.charAt(0).toUpperCase() + data.confidence_level.slice(1);
-            document.getElementById('estimateSource').textContent = data.source.charAt(0).toUpperCase() + data.source.slice(1);
-            
-            // Show result section
-            document.getElementById('estimateResult').style.display = 'block';
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            // Reset button
-            this.innerHTML = 'Get Estimate';
-            this.disabled = false;
-            
-            // Show error
-            alert('Error getting estimate. Please try again.');
-        });
-    });
     
-    // Update unit options based on material type
-    document.getElementById('materialType').addEventListener('change', function() {
-        const unitSelect = document.getElementById('unit');
-        const materialType = this.value;
-        
-        // Clear existing options
-        unitSelect.innerHTML = '';
-        
-        // Add appropriate options based on material type
-        if (materialType === 'concrete') {
-            unitSelect.innerHTML = `
-                <option value="cubic_yard">Cubic Yards</option>
-                <option value="cubic_meter">Cubic Meters</option>
-            `;
-        } else if (materialType === 'lumber') {
-            unitSelect.innerHTML = `
-                <option value="board_feet">Board Feet</option>
-                <option value="cubic_feet">Cubic Feet</option>
-            `;
-        } else if (materialType === 'steel') {
-            unitSelect.innerHTML = `
-                <option value="pounds">Pounds</option>
-                <option value="kg">Kilograms</option>
-            `;
-        }
-    });
+    <div class="col">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center py-4">
+                <i class="fas fa-ruler fa-4x text-primary mb-3"></i>
+                <h2 class="card-title">Lumber Calculator</h2>
+                <p class="card-text">Determine board feet, cost, and materials for lumber projects.</p>
+                <a href="/calculators/lumber" class="btn btn-outline-primary">
+                    <i class="fas fa-calculator me-2"></i>Calculate Lumber
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col">
+        <div class="card h-100 shadow-sm">
+            <div class="card-body text-center py-4">
+                <i class="fas fa-wrench fa-4x text-primary mb-3"></i>
+                <h2 class="card-title">Steel Calculator</h2>
+                <p class="card-text">Calculate weight, cost, and requirements for steel components.</p>
+                <a href="/calculators/steel" class="btn btn-outline-primary">
+                    <i class="fas fa-calculator me-2"></i>Calculate Steel
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h3 class="m-0"><i class="fas fa-project-diagram me-2"></i>Project Management</h3>
+            </div>
+            <div class="card-body">
+                <p class="card-text">Create and manage construction projects, save calculations, and track materials.</p>
+                <div class="d-grid gap-2 d-md-flex justify-content-md-start">
+                    <button class="btn btn-primary me-md-2" type="button">
+                        <i class="fas fa-plus-circle me-2"></i>New Project
+                    </button>
+                    <button class="btn btn-outline-secondary" type="button">
+                        <i class="fas fa-folder-open me-2"></i>View Projects
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+console.log('Dashboard template loaded');
 </script>
 {% endblock %}

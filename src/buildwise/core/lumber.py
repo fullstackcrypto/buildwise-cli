@@ -1,18 +1,7 @@
-"""Lumber calculator module for BuildWise CLI."""
-
-from decimal import Decimal
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Union
-
-from pint import UnitRegistry
-
-# Initialize unit registry
-ureg = UnitRegistry()
-
+import math
 
 class LumberType(str, Enum):
-    """Common lumber types."""
-    
     PINE = "pine"
     FIR = "fir"
     CEDAR = "cedar"
@@ -24,10 +13,7 @@ class LumberType(str, Enum):
     CYPRESS = "cypress"
     POPLAR = "poplar"
 
-
 class LumberGrade(str, Enum):
-    """Common lumber grades."""
-    
     SELECT = "select"
     ONE = "no.1"
     TWO = "no.2"
@@ -39,447 +25,206 @@ class LumberGrade(str, Enum):
     STUD = "stud"
     CUSTOM = "custom"
 
-
 class LumberCalculator:
-    """Calculator for lumber quantities and cost estimation."""
+    """Calculator for lumber measurements and cost estimation."""
     
     def __init__(self):
-        """Initialize the lumber calculator."""
-        self.ureg = UnitRegistry()
-        self.Q_ = self.ureg.Quantity
+        # Nominal to actual dimension mappings
+        self.dimension_map = {
+            # thickness (nominal -> actual)
+            "thickness": {
+                2: 1.5,
+                3: 2.5,
+                4: 3.5,
+                6: 5.5,
+                8: 7.25,
+                10: 9.25,
+                12: 11.25
+            },
+            # width (nominal -> actual)
+            "width": {
+                2: 1.5,
+                3: 2.5,
+                4: 3.5,
+                6: 5.5,
+                8: 7.25,
+                10: 9.25,
+                12: 11.25
+            }
+        }
         
-        # Default prices per board foot (in USD) - approximate market values
-        self._default_prices = {
+        # Default prices per board foot by lumber type and grade
+        self.price_table = {
             LumberType.PINE: {
-                LumberGrade.SELECT: 4.50,
-                LumberGrade.ONE: 3.75,
-                LumberGrade.TWO: 3.00,
-                LumberGrade.THREE: 2.25,
-                LumberGrade.CONSTRUCTION: 2.50,
-                LumberGrade.STANDARD: 2.00,
-                LumberGrade.UTILITY: 1.75,
-                LumberGrade.ECONOMY: 1.50,
-                LumberGrade.STUD: 2.25,
-                LumberGrade.CUSTOM: 5.00,
+                LumberGrade.SELECT: 6.0,
+                LumberGrade.ONE: 4.5,
+                LumberGrade.TWO: 3.0,
+                LumberGrade.THREE: 2.5,
+                LumberGrade.CONSTRUCTION: 3.2,
+                LumberGrade.STANDARD: 2.8,
+                LumberGrade.UTILITY: 2.3,
+                LumberGrade.ECONOMY: 2.0,
+                LumberGrade.STUD: 2.6,
+                LumberGrade.CUSTOM: 5.0
             },
-            LumberType.FIR: {
-                LumberGrade.SELECT: 5.25,
-                LumberGrade.ONE: 4.50,
-                LumberGrade.TWO: 3.75,
-                LumberGrade.THREE: 3.00,
-                LumberGrade.CONSTRUCTION: 3.50,
-                LumberGrade.STANDARD: 3.25,
-                LumberGrade.UTILITY: 2.75,
-                LumberGrade.ECONOMY: 2.25,
-                LumberGrade.STUD: 3.50,
-                LumberGrade.CUSTOM: 6.00,
-            },
-            # Add more lumber types as needed
+            # Add more lumber types as needed...
         }
         
         # Set default prices for other lumber types
         for lumber_type in LumberType:
-            if lumber_type not in self._default_prices:
-                if lumber_type in [LumberType.OAK, LumberType.MAPLE, LumberType.WALNUT]:
-                    # Hardwoods are more expensive
-                    self._default_prices[lumber_type] = {
-                        grade: price * 2.5 for grade, price in self._default_prices[LumberType.PINE].items()
-                    }
-                elif lumber_type in [LumberType.CEDAR, LumberType.REDWOOD, LumberType.CYPRESS]:
-                    # Outdoor/specialty woods
-                    self._default_prices[lumber_type] = {
-                        grade: price * 1.75 for grade, price in self._default_prices[LumberType.PINE].items()
-                    }
-                else:
-                    # Other softwoods
-                    self._default_prices[lumber_type] = {
-                        grade: price * 1.1 for grade, price in self._default_prices[LumberType.PINE].items()
-                    }
+            if lumber_type not in self.price_table:
+                self.price_table[lumber_type] = self.price_table[LumberType.PINE].copy()
+        
+        # Adjust prices for other lumber types
+        self._adjust_prices()
     
-    def calculate_board_feet(
-        self,
-        nominal_width: Union[int, float, Decimal],
-        nominal_thickness: Union[int, float, Decimal],
-        length: Union[int, float, Decimal],
-        quantity: int = 1,
-        length_unit: str = "feet"
-    ) -> Dict[str, Union[float, object]]:
-        """Calculate board feet for lumber.
+    def _adjust_prices(self):
+        """Adjust prices for different lumber types."""
+        # Multipliers for different lumber types relative to pine
+        multipliers = {
+            LumberType.FIR: 1.2,
+            LumberType.CEDAR: 1.5,
+            LumberType.OAK: 2.5,
+            LumberType.MAPLE: 2.8,
+            LumberType.WALNUT: 3.5,
+            LumberType.REDWOOD: 2.0,
+            LumberType.SPRUCE: 1.1,
+            LumberType.CYPRESS: 1.8,
+            LumberType.POPLAR: 1.3
+        }
+        
+        # Apply multipliers
+        for lumber_type, multiplier in multipliers.items():
+            if lumber_type in self.price_table:
+                for grade in self.price_table[lumber_type]:
+                    self.price_table[lumber_type][grade] *= multiplier
+    
+    def calculate_board_feet(self, nominal_width, nominal_thickness, length, quantity=1, length_unit="feet"):
+        """Calculate board feet for given lumber dimensions.
         
         Args:
             nominal_width: Nominal width in inches (e.g., 4 for a 2x4)
             nominal_thickness: Nominal thickness in inches (e.g., 2 for a 2x4)
             length: Length of the lumber
             quantity: Number of pieces
-            length_unit: Unit for length (feet, meters, etc.)
+            length_unit: Unit for length (feet or meters)
             
         Returns:
-            Dict containing board feet and actual dimensions
+            dict: Board feet calculation results
         """
-        # Convert nominal dimensions to actual dimensions (standard conversion)
-        # For 2x lumber, actual thickness is 1.5 inches
-        # For 4x lumber, actual thickness is 3.5 inches
-        # For width, subtract 0.5 inches for ≤6 inches, 0.75 inches for >6 inches
-        if nominal_thickness < 2.5:  # 2x lumber
-            actual_thickness = 1.5
-        elif nominal_thickness < 4.5:  # 4x lumber
-            actual_thickness = 3.5
-        else:  # 6x or larger
-            actual_thickness = nominal_thickness - 0.5
-            
-        if nominal_width <= 6:
-            actual_width = nominal_width - 0.5
-        else:
-            actual_width = nominal_width - 0.75
+        # Convert length to feet if necessary
+        length_feet = length
+        if length_unit == "meters":
+            length_feet = length * 3.28084
         
-        # Convert length to feet for board feet calculation
-        length_q = self.Q_(float(length), length_unit)
-        length_feet = length_q.to(self.ureg.foot).magnitude
+        # Get actual dimensions
+        actual_thickness = self.dimension_map["thickness"].get(nominal_thickness, nominal_thickness)
+        actual_width = self.dimension_map["width"].get(nominal_width, nominal_width)
         
-        # Calculate board feet (width × thickness × length) ÷ 12
-        # Where all dimensions are in inches, except length which is in feet
-        board_feet = (actual_width * actual_thickness * length_feet) / 12 * quantity
-        
-        # Calculate total actual dimensions
-        thickness_q = self.Q_(actual_thickness, 'inch')
-        width_q = self.Q_(actual_width, 'inch')
-        volume = thickness_q * width_q * length_q * quantity
+        # Calculate board feet: (thickness * width * length) / 12
+        board_feet = (actual_thickness * actual_width * length_feet * quantity) / 12
         
         return {
-            "board_feet": round(board_feet, 2),
+            "board_feet": board_feet,
             "actual_thickness": actual_thickness,
             "actual_width": actual_width,
             "length_feet": length_feet,
             "quantity": quantity,
-            "volume": volume,
+            "volume": {
+                "cubic_inches": actual_thickness * actual_width * length_feet * 12 * quantity,
+                "cubic_feet": (actual_thickness * actual_width * length_feet * quantity) / 144
+            }
         }
     
-    def calculate_cost(
-        self,
-        board_feet: Union[float, Dict[str, Union[float, object]]],
-        lumber_type: Union[str, LumberType] = LumberType.PINE,
-        grade: Union[str, LumberGrade] = LumberGrade.TWO,
-        price_per_board_foot: Optional[float] = None
-    ) -> float:
-        """Calculate cost for lumber.
+    def calculate_cost(self, board_feet, lumber_type=LumberType.PINE, grade=LumberGrade.TWO, price_per_board_foot=None):
+        """Calculate cost based on board feet.
         
         Args:
-            board_feet: Board feet value or result from calculate_board_feet
-            lumber_type: Type of lumber (pine, oak, etc.)
-            grade: Grade of lumber (select, no.1, etc.)
-            price_per_board_foot: Custom price per board foot (overrides defaults)
+            board_feet: Board feet value or result dict from calculate_board_feet
+            lumber_type: Type of lumber
+            grade: Grade of lumber
+            price_per_board_foot: Custom price (will use default if None)
             
         Returns:
-            Total cost in USD
+            float: Total cost
         """
-        # Extract board feet if a dictionary is provided
+        # Extract board feet if a dict was provided
+        bf = board_feet
         if isinstance(board_feet, dict) and "board_feet" in board_feet:
-            board_feet_value = board_feet["board_feet"]
-        else:
-            board_feet_value = float(board_feet)
+            bf = board_feet["board_feet"]
         
-        # Convert string values to enum if needed
-        if isinstance(lumber_type, str):
-            lumber_type = LumberType(lumber_type.lower())
+        # Get price per board foot
+        price = price_per_board_foot
+        if price is None:
+            # Use default price from table
+            price = self.price_table.get(lumber_type, {}).get(grade, 3.0)
         
-        if isinstance(grade, str):
-            grade = LumberGrade(grade.lower())
-        
-        # Determine price per board foot
-        if price_per_board_foot is not None:
-            price = float(price_per_board_foot)
-        else:
-            price = self._default_prices.get(lumber_type, {}).get(grade, 3.0)
-        
-        # Calculate total cost
-        cost = board_feet_value * price
-        
-        return round(cost, 2)
+        # Calculate cost
+        cost = bf * price
+        return cost
     
-    def calculate_project(
-        self,
-        dimensions: List[Tuple[float, float, float, int]],
-        lumber_type: Union[str, LumberType] = LumberType.PINE,
-        grade: Union[str, LumberGrade] = LumberGrade.TWO,
-        length_unit: str = "feet",
-        price_per_board_foot: Optional[float] = None,
-        waste_factor: float = 0.1  # 10% waste by default
-    ) -> Dict[str, Union[float, List[Dict[str, Union[float, object]]]]]:
-        """Calculate board feet and cost for a project with multiple lumber pieces.
+    def calculate_project(self, dimensions, lumber_type=LumberType.PINE, grade=LumberGrade.TWO, waste_factor=0.1):
+        """Calculate lumber requirements for a project with multiple pieces.
         
         Args:
             dimensions: List of tuples (width, thickness, length, quantity)
-            lumber_type: Type of lumber for the project
-            grade: Grade of lumber for the project
-            length_unit: Unit for length measurements
-            price_per_board_foot: Custom price per board foot
-            waste_factor: Percentage of waste to account for (0.1 = 10%)
+            lumber_type: Type of lumber
+            grade: Grade of lumber
+            waste_factor: Waste factor (0.1 = 10%)
             
         Returns:
-            Dict with total board feet, cost, and individual calculations
+            dict: Project calculation results
         """
-        calculations = []
         total_board_feet = 0
+        pieces = []
         
-        for width, thickness, length, quantity in dimensions:
-            result = self.calculate_board_feet(
-                nominal_width=width,
-                nominal_thickness=thickness,
-                length=length,
-                quantity=quantity,
-                length_unit=length_unit
-            )
-            calculations.append(result)
+        for dimension in dimensions:
+            width, thickness, length, quantity = dimension
+            result = self.calculate_board_feet(width, thickness, length, quantity)
             total_board_feet += result["board_feet"]
+            pieces.append({
+                "dimensions": f"{thickness}x{width}x{length}'",
+                "quantity": quantity,
+                "board_feet": result["board_feet"]
+            })
         
         # Apply waste factor
-        total_board_feet_with_waste = total_board_feet * (1 + waste_factor)
+        total_with_waste = total_board_feet * (1 + waste_factor)
         
         # Calculate cost
-        cost = self.calculate_cost(
-            board_feet=total_board_feet_with_waste,
-            lumber_type=lumber_type,
-            grade=grade,
-            price_per_board_foot=price_per_board_foot
-        )
+        cost = self.calculate_cost(total_with_waste, lumber_type, grade)
         
         return {
-            "board_feet": round(total_board_feet, 2),
-            "board_feet_with_waste": round(total_board_feet_with_waste, 2),
+            "total_board_feet": total_board_feet,
             "waste_factor": waste_factor,
-            "waste_board_feet": round(total_board_feet_with_waste - total_board_feet, 2),
+            "total_with_waste": total_with_waste,
             "cost": cost,
-            "lumber_type": lumber_type if isinstance(lumber_type, str) else lumber_type.value,
-            "grade": grade if isinstance(grade, str) else grade.value,
-            "calculations": calculations,
+            "pieces": pieces
         }
     
-    def get_standard_sizes(self) -> Dict[str, List[Dict[str, Union[int, str]]]]:
-        """Get a list of standard lumber sizes.
+    def get_lumber_info(self, nominal_thickness, nominal_width, length):
+        """Get information about a lumber piece.
         
-        Returns:
-            Dict of standard lumber dimensions by category
-        """
-        return {
-            "dimensional_lumber": [
-                {"thickness": 2, "width": 2, "description": "2×2"},
-                {"thickness": 2, "width": 3, "description": "2×3"},
-                {"thickness": 2, "width": 4, "description": "2×4"},
-                {"thickness": 2, "width": 6, "description": "2×6"},
-                {"thickness": 2, "width": 8, "description": "2×8"},
-                {"thickness": 2, "width": 10, "description": "2×10"},
-                {"thickness": 2, "width": 12, "description": "2×12"},
-                {"thickness": 4, "width": 4, "description": "4×4"},
-                {"thickness": 4, "width": 6, "description": "4×6"},
-                {"thickness": 6, "width": 6, "description": "6×6"},
-            ],
-            "standard_lengths": [
-                8, 10, 12, 14, 16, 18, 20, 22, 24
-            ],
-            "plywood": [
-                {"thickness": 0.25, "width": 48, "length": 96, "description": "1/4\" × 4' × 8'"},
-                {"thickness": 0.5, "width": 48, "length": 96, "description": "1/2\" × 4' × 8'"},
-                {"thickness": 0.75, "width": 48, "length": 96, "description": "3/4\" × 4' × 8'"},
-            ],
-        }
-
-class LumberCalculator:
-    """Calculator for lumber quantities and cost estimation."""
-    
-    def __init__(self):
-        """Initialize the lumber calculator."""
-        self.ureg = UnitRegistry()
-        self.Q_ = self.ureg.Quantity
-        
-        # Default prices per board foot (in USD) - approximate market values
-        self._default_prices = {
-            LumberType.PINE: {
-                LumberGrade.SELECT: 4.50,
-                LumberGrade.ONE: 3.75,
-                LumberGrade.TWO: 3.00,
-                LumberGrade.THREE: 2.25,
-                LumberGrade.CONSTRUCTION: 2.50,
-                LumberGrade.STANDARD: 2.00,
-                LumberGrade.UTILITY: 1.75,
-                LumberGrade.ECONOMY: 1.50,
-                LumberGrade.STUD: 2.25,
-                LumberGrade.CUSTOM: 5.00,
-            },
-            LumberType.FIR: {
-                LumberGrade.SELECT: 5.25,
-                LumberGrade.ONE: 4.50,
-                LumberGrade.TWO: 3.75,
-                LumberGrade.THREE: 3.00,
-                LumberGrade.CONSTRUCTION: 3.50,
-                LumberGrade.STANDARD: 3.25,
-                LumberGrade.UTILITY: 2.75,
-                LumberGrade.ECONOMY: 2.25,
-                LumberGrade.STUD: 3.50,
-                LumberGrade.CUSTOM: 6.00,
-            },
-        }
-        
-        # Set default prices for other lumber types
-        for lumber_type in LumberType:
-            if lumber_type not in self._default_prices:
-                if lumber_type in [LumberType.OAK, LumberType.MAPLE, LumberType.WALNUT]:
-                    # Hardwoods are more expensive
-                    self._default_prices[lumber_type] = {
-                        grade: price * 2.5 for grade, price in self._default_prices[LumberType.PINE].items()
-                    }
-                elif lumber_type in [LumberType.CEDAR, LumberType.REDWOOD, LumberType.CYPRESS]:
-                    # Outdoor/specialty woods
-                    self._default_prices[lumber_type] = {
-                        grade: price * 1.75 for grade, price in self._default_prices[LumberType.PINE].items()
-                    }
-                else:
-                    # Other softwoods
-                    self._default_prices[lumber_type] = {
-                        grade: price * 1.1 for grade, price in self._default_prices[LumberType.PINE].items()
-                    }
-    
-    def calculate_board_feet(
-        self,
-        nominal_width: Union[int, float, Decimal],
-        nominal_thickness: Union[int, float, Decimal],
-        length: Union[int, float, Decimal],
-        quantity: int = 1,
-        length_unit: str = "feet"
-    ) -> Dict[str, Union[float, object]]:
-        """Calculate board feet for lumber."""
-        # Convert nominal dimensions to actual dimensions (standard conversion)
-        if nominal_thickness < 2.5:  # 2x lumber
-            actual_thickness = 1.5
-        elif nominal_thickness < 4.5:  # 4x lumber
-            actual_thickness = 3.5
-        else:  # 6x or larger
-            actual_thickness = nominal_thickness - 0.5
+        Args:
+            nominal_thickness: Nominal thickness in inches
+            nominal_width: Nominal width in inches
+            length: Length in feet
             
-        if nominal_width <= 6:
-            actual_width = nominal_width - 0.5
-        else:
-            actual_width = nominal_width - 0.75
+        Returns:
+            dict: Lumber information
+        """
+        result = self.calculate_board_feet(nominal_width, nominal_thickness, length)
         
-        # Convert length to feet for board feet calculation
-        length_q = self.Q_(float(length), length_unit)
-        length_feet = length_q.to(self.ureg.foot).magnitude
-        
-        # Calculate board feet (width × thickness × length) ÷ 12
-        board_feet = (actual_width * actual_thickness * length_feet) / 12 * quantity
-        
-        # Calculate total actual dimensions
-        thickness_q = self.Q_(actual_thickness, 'inch')
-        width_q = self.Q_(actual_width, 'inch')
-        volume = thickness_q * width_q * length_q * quantity
-        
-        return {
-            "board_feet": round(board_feet, 2),
-            "actual_thickness": actual_thickness,
-            "actual_width": actual_width,
-            "length_feet": length_feet,
-            "quantity": quantity,
-            "volume": volume,
+        info = {
+            "nominal_size": f"{nominal_thickness}x{nominal_width}x{length}'",
+            "actual_size": f"{result['actual_thickness']}\"x{result['actual_width']}\"x{length}'",
+            "board_feet": result["board_feet"],
+            "weight_lbs": result["board_feet"] * 2.5  # Approximate weight
         }
+        
+        return info
     
-    def calculate_cost(
-        self,
-        board_feet: Union[float, Dict[str, Union[float, object]]],
-        lumber_type: Union[str, LumberType] = LumberType.PINE,
-        grade: Union[str, LumberGrade] = LumberGrade.TWO,
-        price_per_board_foot: Optional[float] = None
-    ) -> float:
-        """Calculate cost for lumber."""
-        # Extract board feet if a dictionary is provided
-        if isinstance(board_feet, dict) and "board_feet" in board_feet:
-            board_feet_value = board_feet["board_feet"]
-        else:
-            board_feet_value = float(board_feet)
-        
-        # Convert string values to enum if needed
-        if isinstance(lumber_type, str):
-            lumber_type = LumberType(lumber_type.lower())
-        
-        if isinstance(grade, str):
-            grade = LumberGrade(grade.lower())
-        
-        # Determine price per board foot
-        if price_per_board_foot is not None:
-            price = float(price_per_board_foot)
-        else:
-            price = self._default_prices.get(lumber_type, {}).get(grade, 3.0)
-        
-        # Calculate total cost
-        cost = board_feet_value * price
-        
-        return round(cost, 2)
-    
-    def calculate_project(
-        self,
-        dimensions: List[Tuple[float, float, float, int]],
-        lumber_type: Union[str, LumberType] = LumberType.PINE,
-        grade: Union[str, LumberGrade] = LumberGrade.TWO,
-        length_unit: str = "feet",
-        price_per_board_foot: Optional[float] = None,
-        waste_factor: float = 0.1  # 10% waste by default
-    ) -> Dict[str, Union[float, List[Dict[str, Union[float, object]]]]]:
-        """Calculate board feet and cost for a project with multiple lumber pieces."""
-        calculations = []
-        total_board_feet = 0
-        
-        for width, thickness, length, quantity in dimensions:
-            result = self.calculate_board_feet(
-                nominal_width=width,
-                nominal_thickness=thickness,
-                length=length,
-                quantity=quantity,
-                length_unit=length_unit
-            )
-            calculations.append(result)
-            total_board_feet += result["board_feet"]
-        
-        # Apply waste factor
-        total_board_feet_with_waste = total_board_feet * (1 + waste_factor)
-        
-        # Calculate cost
-        cost = self.calculate_cost(
-            board_feet=total_board_feet_with_waste,
-            lumber_type=lumber_type,
-            grade=grade,
-            price_per_board_foot=price_per_board_foot
-        )
-        
-        return {
-            "board_feet": round(total_board_feet, 2),
-            "board_feet_with_waste": round(total_board_feet_with_waste, 2),
-            "waste_factor": waste_factor,
-            "waste_board_feet": round(total_board_feet_with_waste - total_board_feet, 2),
-            "cost": cost,
-            "lumber_type": lumber_type if isinstance(lumber_type, str) else lumber_type.value,
-            "grade": grade if isinstance(grade, str) else grade.value,
-            "calculations": calculations,
-        }
-    
-    def get_standard_sizes(self) -> Dict[str, List[Dict[str, Union[int, str]]]]:
-        """Get a list of standard lumber sizes."""
-        return {
-            "dimensional_lumber": [
-                {"thickness": 2, "width": 2, "description": "2×2"},
-                {"thickness": 2, "width": 3, "description": "2×3"},
-                {"thickness": 2, "width": 4, "description": "2×4"},
-                {"thickness": 2, "width": 6, "description": "2×6"},
-                {"thickness": 2, "width": 8, "description": "2×8"},
-                {"thickness": 2, "width": 10, "description": "2×10"},
-                {"thickness": 2, "width": 12, "description": "2×12"},
-                {"thickness": 4, "width": 4, "description": "4×4"},
-                {"thickness": 4, "width": 6, "description": "4×6"},
-                {"thickness": 6, "width": 6, "description": "6×6"},
-            ],
-            "standard_lengths": [
-                8, 10, 12, 14, 16, 18, 20, 22, 24
-            ],
-            "plywood": [
-                {"thickness": 0.25, "width": 48, "length": 96, "description": "1/4\" × 4' × 8'"},
-                {"thickness": 0.5, "width": 48, "length": 96, "description": "1/2\" × 4' × 8'"},
-                {"thickness": 0.75, "width": 48, "length": 96, "description": "3/4\" × 4' × 8'"},
-            ],
-        }
+    def get_default_price(self, lumber_type, grade):
+        """Get default price for lumber type and grade."""
+        # This would normally call an API, but we'll simulate it for now
+        return self.price_table.get(lumber_type, {}).get(grade, 3.0)
